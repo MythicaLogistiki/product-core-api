@@ -11,6 +11,9 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import text
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Context variable to hold current tenant_id
 current_tenant_id: ContextVar[str | None] = ContextVar("current_tenant_id", default=None)

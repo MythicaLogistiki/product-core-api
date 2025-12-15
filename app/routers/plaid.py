@@ -10,6 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.middleware import get_current_user, TokenData
 from app.services import plaid_service
+from dotenv import load_dotenv
+
+load_dotenv()
 
 router = APIRouter(tags=["plaid"])
 

@@ -9,6 +9,9 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 
 from app.core.database import current_tenant_id, PUBLIC_TENANT
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Config
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "dev-secret-change-in-production")

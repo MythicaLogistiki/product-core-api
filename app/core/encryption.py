@@ -3,6 +3,9 @@
 import os
 from functools import lru_cache
 from cryptography.fernet import Fernet
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Load encryption key from environment
 # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
