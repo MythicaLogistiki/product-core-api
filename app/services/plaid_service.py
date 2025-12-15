@@ -2,8 +2,10 @@
 
 import os
 import logging
+import hashlib
 from datetime import datetime, timezone
 from uuid import UUID
+from dotenv import load_dotenv
 
 import plaid
 from plaid.api import plaid_api
@@ -22,6 +24,8 @@ from app.core.encryption import encrypt_token, decrypt_token
 from app.core.database import async_session_factory
 
 logger = logging.getLogger(__name__)
+
+load_dotenv()
 
 # Plaid configuration
 PLAID_CLIENT_ID = os.getenv("PLAID_CLIENT_ID")
@@ -55,6 +59,11 @@ def get_plaid_client() -> plaid_api.PlaidApi:
     return plaid_api.PlaidApi(api_client)
 
 
+def _hash_user_id(user_id: str) -> str:
+    """Hash user_id to avoid sending PII (like email) to Plaid."""
+    return hashlib.sha256(user_id.encode()).hexdigest()[:32]
+
+
 async def create_link_token(user_id: str) -> str:
     """
     Create a Plaid Link token for initializing Link in the frontend.
@@ -67,12 +76,15 @@ async def create_link_token(user_id: str) -> str:
     """
     client = get_plaid_client()
 
+    # Hash the user_id to avoid sending PII to Plaid
+    hashed_user_id = _hash_user_id(user_id)
+
     request = LinkTokenCreateRequest(
         products=[Products("auth"), Products("transactions")],
         client_name="Phase Zero",
         country_codes=[CountryCode("US")],
         language="en",
-        user=LinkTokenCreateRequestUser(client_user_id=user_id),
+        user=LinkTokenCreateRequestUser(client_user_id=hashed_user_id),
     )
 
     response = client.link_token_create(request)

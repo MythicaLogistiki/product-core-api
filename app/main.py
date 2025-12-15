@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import auth, plaid
+from app.routers import plaid
 
 app = FastAPI(
     title="Phase Zero Core API",
@@ -21,7 +21,6 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(auth.router)  # /token at root for OAuth2 compatibility
 app.include_router(plaid.router, prefix="/api/v1")
 
 
