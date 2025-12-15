@@ -90,3 +90,59 @@ app/
   ):
       # Admin only
       ...
+  
+
+# Get the encryption
+```
+python -c "from cryptography.fernet import Fernet; 
+print(Fernet.generate_key().decode())"
+```
+
+# Local Run of the entire solution:
+  # Kill existing processes
+  lsof -ti:8000 | xargs kill -9 2>/dev/null
+  lsof -ti:3000 | xargs kill -9 2>/dev/null
+
+  # Start backend (from product-core-api directory)
+  cd /Users/leoceka/repos/phase-zero/product-core-api
+  source .venv/bin/activate
+  uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload &
+
+  # Start frontend (from product-frontend-web directory)
+  cd /Users/leoceka/repos/phase-zero/product-frontend-web
+  npm run dev &
+
+  The --reload flag on uvicorn enables hot-reloading so it picks up code changes
+  automatically.
+  
+  Commands to Run the Entire Solution
+
+  # Kill any existing processes on the ports
+  lsof -ti:8000 | xargs kill -9 2>/dev/null
+  lsof -ti:8001 | xargs kill -9 2>/dev/null
+  lsof -ti:3000 | xargs kill -9 2>/dev/null
+
+  # Start identity-service (Auth) on port 8001
+  cd /Users/leoceka/repos/phase-zero/identity-service
+  source .venv/bin/activate
+  uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload &
+
+  # Start product-core-api (API) on port 8000
+  cd /Users/leoceka/repos/phase-zero/product-core-api
+  source .venv/bin/activate
+  uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload &
+
+  # Start product-frontend-web (Frontend) on port 3000
+  cd /Users/leoceka/repos/phase-zero/product-frontend-web
+  npm run dev &
+
+  ---
+  Architecture
+
+  ┌─────────────────┐     /token      ┌──────────────────┐
+  │    Frontend     │ ───────────────▶│ identity-service │
+  │   (port 3000)   │                 │   (port 8001)    │
+  │                 │     /api/v1/*   ├──────────────────┤
+  │                 │ ───────────────▶│ product-core-api │
+  └─────────────────┘                 │   (port 8000)    │
+                                      └──────────────────┘
