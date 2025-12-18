@@ -47,6 +47,27 @@ class SyncResponse(BaseModel):
     transactions_removed: int
 
 
+class ItemSyncResponse(BaseModel):
+    """Response from single item sync."""
+    added: int
+    modified: int
+    removed: int
+    synced_at: str
+
+
+class PlaidItemResponse(BaseModel):
+    """Plaid item details for frontend."""
+    id: UUID
+    institution_id: str | None
+    institution_name: str | None
+    is_active: bool
+    last_synced_at: str | None
+    sync_frequency_hours: int
+
+    class Config:
+        from_attributes = True
+
+
 @router.post("/plaid/link-token", response_model=LinkTokenResponse)
 async def create_link_token(
     user: TokenData = Depends(get_current_user),
@@ -108,15 +129,16 @@ async def connect_plaid_account(
         )
 
 
-@router.post("/jobs/sync", response_model=SyncResponse)
-async def sync_transactions(
+@router.post("/jobs/process-sync-queue", response_model=SyncResponse)
+async def process_sync_queue(
     x_api_key: str | None = Header(None, alias="X-API-Key"),
 ) -> SyncResponse:
     """
-    Sync transactions for all active Plaid items.
+    Sync transactions for all items that are due based on sync_frequency_hours.
 
     This endpoint is intended to be called by Cloud Scheduler.
     Requires X-API-Key header matching SYNC_API_KEY environment variable.
+    Only syncs items where (now - last_synced_at) > sync_frequency_hours.
     """
     # Validate API key
     if not SYNC_API_KEY:
@@ -132,10 +154,69 @@ async def sync_transactions(
         )
 
     try:
-        summary = await plaid_service.sync_transactions()
+        summary = await plaid_service.sync_due_items()
         return SyncResponse(**summary)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Transaction sync failed: {str(e)}",
         )
+
+
+@router.post("/plaid/sync/{item_id}", response_model=ItemSyncResponse)
+async def sync_plaid_item(
+    item_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: TokenData = Depends(get_current_user),
+) -> ItemSyncResponse:
+    """
+    Manually sync transactions for a specific Plaid item.
+
+    Triggered by user clicking "Sync Now" in the frontend.
+    Only syncs the specified item if it belongs to the user's tenant.
+    """
+    try:
+        summary = await plaid_service.sync_transactions_for_item(
+            db=db,
+            item_id=item_id,
+            tenant_id=UUID(user.tenant_id),
+        )
+        return ItemSyncResponse(**summary)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to sync item: {str(e)}",
+        )
+
+
+@router.get("/plaid/items", response_model=list[PlaidItemResponse])
+async def get_plaid_items(
+    db: AsyncSession = Depends(get_db),
+    user: TokenData = Depends(get_current_user),
+) -> list[PlaidItemResponse]:
+    """
+    Get all connected Plaid items for the current user's tenant.
+
+    Returns list of connected bank accounts with sync status.
+    """
+    items = await plaid_service.get_plaid_items_for_user(
+        db=db,
+        tenant_id=UUID(user.tenant_id),
+    )
+
+    return [
+        PlaidItemResponse(
+            id=item.id,
+            institution_id=item.institution_id,
+            institution_name=item.institution_name,
+            is_active=item.is_active,
+            last_synced_at=item.last_synced_at.isoformat() if item.last_synced_at else None,
+            sync_frequency_hours=item.sync_frequency_hours,
+        )
+        for item in items
+    ]

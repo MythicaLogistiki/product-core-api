@@ -55,9 +55,9 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with async_session_factory() as session:
         tenant_id = current_tenant_id.get() or PUBLIC_TENANT
 
-        # Set tenant context for RLS
+        # Set tenant context for RLS (use set_config for parameterized values)
         await session.execute(
-            text("SET app.current_tenant = :tenant_id"),
+            text("SELECT set_config('app.current_tenant', :tenant_id, true)"),
             {"tenant_id": tenant_id},
         )
 

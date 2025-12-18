@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime, timezone, date
 from decimal import Decimal
-from sqlalchemy import String, Text, DateTime, Date, Numeric, Boolean, ForeignKey, Index
+from sqlalchemy import String, Text, DateTime, Date, Numeric, Boolean, ForeignKey, Index, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 
@@ -64,6 +64,12 @@ class PlaidItem(Base):
     last_synced_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
+    )
+    # How often to auto-sync (in hours)
+    sync_frequency_hours: Mapped[int] = mapped_column(
+        Integer,
+        default=24,
+        nullable=False,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

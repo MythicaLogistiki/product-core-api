@@ -15,7 +15,8 @@ from plaid.model.item_public_token_exchange_request import ItemPublicTokenExchan
 from plaid.model.transactions_sync_request import TransactionsSyncRequest
 from plaid.model.products import Products
 from plaid.model.country_code import CountryCode
-from sqlalchemy import select
+from sqlalchemy import select, and_, or_
+from sqlalchemy.sql import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -204,8 +205,8 @@ async def _sync_item_transactions(
     # Decrypt access token
     access_token = decrypt_token(plaid_item.encrypted_access_token)
 
-    # Use cursor for incremental sync
-    cursor = plaid_item.transaction_cursor
+    # Use cursor for incremental sync (empty string for initial sync)
+    cursor = plaid_item.transaction_cursor or ""
     has_more = True
 
     while has_more:
@@ -312,3 +313,146 @@ async def _remove_transaction(db: AsyncSession, plaid_transaction_id: str) -> No
 
     if transaction:
         await db.delete(transaction)
+
+
+async def sync_transactions_for_item(
+    db: AsyncSession,
+    item_id: UUID,
+    tenant_id: UUID,
+) -> dict:
+    """
+    Sync transactions for a single PlaidItem (manual sync triggered by user).
+
+    Args:
+        db: Database session with RLS context
+        item_id: The PlaidItem UUID to sync
+        tenant_id: The tenant UUID for RLS validation
+
+    Returns:
+        Summary dict with added/modified/removed counts and synced_at timestamp
+
+    Raises:
+        ValueError: If item not found or doesn't belong to tenant
+    """
+    client = get_plaid_client()
+
+    # Query item with tenant_id check for RLS safety
+    result = await db.execute(
+        select(PlaidItem).where(
+            and_(
+                PlaidItem.id == item_id,
+                PlaidItem.tenant_id == tenant_id,
+                PlaidItem.is_active == True,
+            )
+        )
+    )
+    plaid_item = result.scalar_one_or_none()
+
+    if not plaid_item:
+        raise ValueError(f"PlaidItem {item_id} not found or not active")
+
+    summary = {
+        "added": 0,
+        "modified": 0,
+        "removed": 0,
+    }
+
+    # Reuse existing sync logic
+    internal_summary = {
+        "transactions_added": 0,
+        "transactions_modified": 0,
+        "transactions_removed": 0,
+    }
+
+    await _sync_item_transactions(db, client, plaid_item, internal_summary)
+
+    summary["added"] = internal_summary["transactions_added"]
+    summary["modified"] = internal_summary["transactions_modified"]
+    summary["removed"] = internal_summary["transactions_removed"]
+    summary["synced_at"] = datetime.now(timezone.utc).isoformat()
+
+    logger.info(f"Manual sync completed for PlaidItem {item_id}: {summary}")
+    return summary
+
+
+async def sync_due_items() -> dict:
+    """
+    Sync transactions for all items that are due for sync based on sync_frequency_hours.
+
+    Items are due if:
+    - last_synced_at is NULL (never synced), OR
+    - (now - last_synced_at) > sync_frequency_hours
+
+    Returns:
+        Summary dict with counts of items processed/failed and transactions synced
+    """
+    client = get_plaid_client()
+
+    summary = {
+        "items_processed": 0,
+        "items_skipped": 0,
+        "items_failed": 0,
+        "transactions_added": 0,
+        "transactions_modified": 0,
+        "transactions_removed": 0,
+    }
+
+    async with async_session_factory() as db:
+        # Get items that are due for sync
+        now = datetime.now(timezone.utc)
+
+        result = await db.execute(
+            select(PlaidItem).where(
+                and_(
+                    PlaidItem.is_active == True,
+                    or_(
+                        PlaidItem.last_synced_at.is_(None),
+                        # Check if enough hours have passed since last sync
+                        func.extract("epoch", now - PlaidItem.last_synced_at) / 3600
+                        > PlaidItem.sync_frequency_hours,
+                    ),
+                )
+            )
+        )
+        due_items = result.scalars().all()
+
+        logger.info(f"Found {len(due_items)} items due for sync")
+
+        for plaid_item in due_items:
+            try:
+                await _sync_item_transactions(db, client, plaid_item, summary)
+                summary["items_processed"] += 1
+            except Exception as e:
+                logger.error(f"Failed to sync PlaidItem {plaid_item.id}: {e}")
+                summary["items_failed"] += 1
+                # Continue with other items
+
+        await db.commit()
+
+    logger.info(f"Scheduled sync completed: {summary}")
+    return summary
+
+
+async def get_plaid_items_for_user(
+    db: AsyncSession,
+    tenant_id: UUID,
+) -> list[PlaidItem]:
+    """
+    Get all active PlaidItems for a tenant.
+
+    Args:
+        db: Database session
+        tenant_id: The tenant UUID
+
+    Returns:
+        List of PlaidItem objects
+    """
+    result = await db.execute(
+        select(PlaidItem).where(
+            and_(
+                PlaidItem.tenant_id == tenant_id,
+                PlaidItem.is_active == True,
+            )
+        ).order_by(PlaidItem.created_at.desc())
+    )
+    return list(result.scalars().all())
