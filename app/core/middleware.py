@@ -1,8 +1,9 @@
-"""Authentication middleware with tenant extraction."""
+"""Authentication middleware with tenant extraction and role-based access."""
 
 import os
 from typing import Optional
 from dataclasses import dataclass
+from enum import Enum
 
 from fastapi import Request, HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -21,12 +22,38 @@ REQUIRE_AUTH = os.getenv("REQUIRE_AUTH", "true").lower() == "true"
 security = HTTPBearer(auto_error=False)
 
 
+class PlatformRole(str, Enum):
+    """Platform-level roles for Numbersence users."""
+    # Standard tenant users
+    STANDARD = "standard"
+    ADMIN = "admin"
+
+    # Platform staff (Numbersence internal)
+    PLATFORM_ADMIN = "platform_admin"  # Create orgs, manage billing
+    SUPPORT_AGENT = "support_agent"    # View-only support access
+
+
 @dataclass
 class TokenData:
     """Decoded JWT payload."""
     sub: str
     tenant_id: str
     role: str
+
+    @property
+    def is_platform_staff(self) -> bool:
+        """Check if user is Numbersence internal staff."""
+        return self.role in [PlatformRole.PLATFORM_ADMIN.value, PlatformRole.SUPPORT_AGENT.value]
+
+    @property
+    def is_platform_admin(self) -> bool:
+        """Check if user is platform admin."""
+        return self.role == PlatformRole.PLATFORM_ADMIN.value
+
+    @property
+    def is_support_agent(self) -> bool:
+        """Check if user is support agent."""
+        return self.role == PlatformRole.SUPPORT_AGENT.value
 
 
 def decode_token(token: str) -> TokenData:
@@ -102,3 +129,8 @@ class RoleChecker:
 # Pre-configured role checkers
 require_admin = RoleChecker(["admin"])
 require_standard = RoleChecker(["admin", "standard"])
+
+# Platform staff role checkers
+require_platform_admin = RoleChecker(["platform_admin"])
+require_support_agent = RoleChecker(["platform_admin", "support_agent"])
+require_platform_staff = RoleChecker(["platform_admin", "support_agent"])

@@ -146,3 +146,48 @@ print(Fernet.generate_key().decode())"
   │                 │ ───────────────▶│ product-core-api │
   └─────────────────┘                 │   (port 8000)    │
                                       └──────────────────┘
+# multitenant support
+
+⏺ All services are running. Here's the summary of changes:
+
+  Identity Service Updates:
+
+  1. Added new roles in models.py:
+    - PLATFORM_ADMIN - internal Numbersence staff for admin console
+    - SUPPORT_AGENT - customer support staff
+  2. Added test users in main.py:
+    - platform@numbersence.com / platform123 → platform_admin role
+    - support@numbersence.com / support123 → support_agent role
+
+  Services running:
+  - Backend API: http://localhost:8000
+  - Identity Service: http://localhost:8001
+  - Frontend: http://localhost:3000
+
+  To test the admin console:
+  1. Go to http://localhost:3000/login
+  2. Login with platform@numbersence.com / platform123
+  3. Navigate to http://localhost:3000/admin/orgs
+
+  Support Agent Experience
+
+  Frontend (/support):
+  - Dashboard (/support) - Overview with quick actions, stats, and guidelines
+  - Customer Lookup (/support/lookup) - Search organizations and start impersonation sessions
+  - Active Sessions (/support/sessions) - View and manage your impersonation sessions
+  - Cyan/teal color theme to distinguish from admin console
+
+  Backend (/api/v1/support/*):
+  - POST /support/impersonate/{tenant_id} - Start impersonation session (creates audit log)
+  - DELETE /support/impersonate/{session_id} - End session
+  - GET /support/sessions - Get active sessions
+  - GET /support/audit-log - View access audit log
+
+  Login Redirects:
+  - platform_admin → /admin/orgs
+  - support_agent → /support
+  - Others → /dashboard
+
+  Test Credentials:
+  - Platform Admin: platform@numbersence.com / platform123
+  - Support Agent: support@numbersence.com / support123
